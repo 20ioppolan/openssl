@@ -30,6 +30,13 @@ OpenSSL 3.5
 
 ### Changes between 3.4 and 3.5 [xx XXX xxxx]
 
+* A configuration page has been updated to remove the Vx-Works configurations. 
+  They are listed as an unsupported platform, so it was updated to remove it.
+  See the `10-main.conf` configuration page.
+
+  *Anthony Ioppolo*
+
+
 * New inline functions were added to support loads and stores of unsigned
   16-bit, 32-bit and 64-bit integers in either little-endian or big-endian
   form, regardless of the host byte-order.  See the `OPENSSL_load_u16_le(3)`
