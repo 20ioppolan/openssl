@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2024 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2025 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -175,6 +175,7 @@ struct ossl_provider_st {
     OSSL_FUNC_provider_get_params_fn *get_params;
     OSSL_FUNC_provider_get_capabilities_fn *get_capabilities;
     OSSL_FUNC_provider_self_test_fn *self_test;
+    OSSL_FUNC_provider_random_bytes_fn *random_bytes;
     OSSL_FUNC_provider_query_operation_fn *query_operation;
     OSSL_FUNC_provider_unquery_operation_fn *unquery_operation;
 
@@ -1067,6 +1068,10 @@ static int provider_init(OSSL_PROVIDER *prov)
                 prov->self_test =
                     OSSL_FUNC_provider_self_test(provider_dispatch);
                 break;
+            case OSSL_FUNC_PROVIDER_RANDOM_BYTES:
+                prov->random_bytes =
+                    OSSL_FUNC_provider_random_bytes(provider_dispatch);
+                break;
             case OSSL_FUNC_PROVIDER_GET_CAPABILITIES:
                 prov->get_capabilities =
                     OSSL_FUNC_provider_get_capabilities(provider_dispatch);
@@ -1164,6 +1169,12 @@ static int provider_deactivate(OSSL_PROVIDER *prov, int upcalls,
     if (!ossl_assert(prov != NULL))
         return -1;
 
+#ifndef FIPS_MODULE
+    if (prov->random_bytes != NULL
+            && !ossl_rand_check_random_provider_on_unload(prov->libctx, prov))
+        return -1;
+#endif
+
     /*
      * No need to lock if we've got no store because we've not been shared with
      * other threads.
@@ -1260,6 +1271,10 @@ static int provider_activate(OSSL_PROVIDER *prov, int lock, int upcalls)
     }
 
 #ifndef FIPS_MODULE
+    if (prov->random_bytes != NULL
+            && !ossl_rand_check_random_provider_on_load(prov->libctx, prov))
+        return -1;
+
     if (prov->ischild && upcalls && !ossl_provider_up_ref_parent(prov, 1))
         return -1;
 #endif
@@ -1860,6 +1875,14 @@ int ossl_provider_self_test(const OSSL_PROVIDER *prov)
  * If tracing is enabled, a message is printed indicating the requested
  * capabilities.
  */
+int ossl_provider_random_bytes(const OSSL_PROVIDER *prov, int which,
+                               void *buf, size_t n, unsigned int strength)
+{
+    return prov->random_bytes == NULL ? 0
+                                      : prov->random_bytes(prov->provctx, which,
+                                                           buf, n, strength);
+}
+
 int ossl_provider_get_capabilities(const OSSL_PROVIDER *prov,
                                    const char *capability,
                                    OSSL_CALLBACK *cb,
@@ -2398,6 +2421,7 @@ static void core_self_test_get_callback(OPENSSL_CORE_CTX *libctx,
     OSSL_SELF_TEST_get_callback((OSSL_LIB_CTX *)libctx, cb, cbarg);
 }
 
+# ifdef OPENSSL_NO_FIPS_JITTER
 static size_t rand_get_entropy(const OSSL_CORE_HANDLE *handle,
                                unsigned char **pout, int entropy,
                                size_t min_len, size_t max_len)
@@ -2405,6 +2429,31 @@ static size_t rand_get_entropy(const OSSL_CORE_HANDLE *handle,
     return ossl_rand_get_entropy((OSSL_LIB_CTX *)core_get_libctx(handle),
                                  pout, entropy, min_len, max_len);
 }
+# else
+/*
+ * OpenSSL FIPS providers prior to 3.2 call rand_get_entropy API from
+ * core, instead of the newer get_user_entropy. Newer API call honors
+ * runtime configuration of random seed source and can be configured
+ * to use os getranom() or another seed source, such as
+ * JITTER. However, 3.0.9 only calls this API. Note that no other
+ * providers known to use this, and it is core <-> provider only
+ * API. Public facing EVP and getrandom bytes already correctly honor
+ * runtime configuration for seed source. There are no other providers
+ * packaged in Wolfi, or even known to exist that use this api. Thus
+ * it is safe to say any caller of this API is in fact 3.0.9 FIPS
+ * provider. Also note that the passed in handle is invalid and cannot
+ * be safely dereferences in such cases. Due to a bug in FIPS
+ * providers 3.0.0, 3.0.8 and 3.0.9. See
+ * https://github.com/openssl/openssl/blob/master/doc/internal/man3/ossl_rand_get_entropy.pod#notes
+ */
+size_t ossl_rand_jitter_get_seed(unsigned char **, int, size_t, size_t);
+static size_t rand_get_entropy(const OSSL_CORE_HANDLE *handle,
+                               unsigned char **pout, int entropy,
+                               size_t min_len, size_t max_len)
+{
+    return ossl_rand_jitter_get_seed(pout, entropy, min_len, max_len);
+}
+# endif
 
 static size_t rand_get_user_entropy(const OSSL_CORE_HANDLE *handle,
                                     unsigned char **pout, int entropy,

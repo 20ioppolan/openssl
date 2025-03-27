@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2024 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2019-2025 The OpenSSL Project Authors. All Rights Reserved.
  *
  * Licensed under the Apache License 2.0 (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
@@ -250,7 +250,7 @@ static void destruct_evp_method(void *method, void *data)
 static void *
 inner_evp_generic_fetch(struct evp_method_data_st *methdata,
                         OSSL_PROVIDER *prov, int operation_id,
-                        const char *name, const char *properties,
+                        const char *name, ossl_unused const char *properties,
                         void *(*new_method)(int name_id,
                                             const OSSL_ALGORITHM *algodef,
                                             OSSL_PROVIDER *prov),
@@ -259,7 +259,17 @@ inner_evp_generic_fetch(struct evp_method_data_st *methdata,
 {
     OSSL_METHOD_STORE *store = get_evp_method_store(methdata->libctx);
     OSSL_NAMEMAP *namemap = ossl_namemap_stored(methdata->libctx);
+#ifdef FIPS_MODULE
+    /*
+     * The FIPS provider has its own internal library context where only it
+     * is loaded.  Consequently, property queries aren't relevant because
+     * there is only one fetchable algorithm and it is assumed that the
+     * FIPS-ness is handled by the using algorithm.
+     */
+    const char *const propq = "";
+#else
     const char *const propq = properties != NULL ? properties : "";
+#endif  /* FIPS_MODULE */
     uint32_t meth_id = 0;
     void *method = NULL;
     int unsupported, name_id;
