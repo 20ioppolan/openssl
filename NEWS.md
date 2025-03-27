@@ -37,6 +37,9 @@ changes:
 
   * Default encryption cipher for the `req`, `cms`, and `smime` applications
     changed from `des-ede3-cbc` to `aes-256-cbc`.
+  
+  * Updated a configuration to remove `Vx-Works` targets because they are
+    currently unsupported as a platform.
 
   * The default TLS supported groups list has been changed to include and
     prefer hybrid PQC KEM groups. Some practically unused groups were removed
